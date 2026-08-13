@@ -13,8 +13,8 @@ RUN python -m pip install --upgrade pip \
 COPY dingtalk ./dingtalk
 COPY video_remake ./video_remake
 
-RUN addgroup --system appgroup \
-    && adduser --system --ingroup appgroup appuser \
+RUN addgroup --gid 1000 appgroup \
+    && adduser --uid 1000 --gid 1000 --disabled-password --gecos "" appuser \
     && mkdir -p /data \
     && chown -R appuser:appgroup /app /data
 
