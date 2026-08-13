@@ -218,12 +218,17 @@ def test_llm_empty_response_is_failure() -> None:
     response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="  "))]
     )
-    completions = SimpleNamespace(create=lambda **kwargs: response)
+    observed = {}
+    def create(**kwargs):
+        observed.update(kwargs)
+        return response
+    completions = SimpleNamespace(create=create)
     client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     settings = VideoRemakeSettings("key", "https://llm.test/v1", "model")
     llm = LLMClient(settings, client=client, sleep=lambda _: None)
     with pytest.raises(EmptyLLMResponseError):
         llm.generate_final_prompt(VideoRemakeTask.from_record(make_record()))
+    assert 0 < observed["timeout"] <= 120
 
 
 @pytest.mark.parametrize(

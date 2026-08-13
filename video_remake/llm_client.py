@@ -25,23 +25,30 @@ class LLMClient:
     ) -> None:
         settings.validate_llm()
         self.model = settings.llm_model
+        self.total_timeout_seconds = settings.llm_timeout_seconds
         self.client = client or OpenAI(
             api_key=settings.llm_api_key,
             base_url=normalize_base_url(settings.llm_base_url),
             timeout=settings.llm_timeout_seconds,
+            max_retries=0,
         )
         self.sleep = sleep
         self.max_attempts = max_attempts
 
     def generate_final_prompt(self, task: VideoRemakeTask) -> str:
+        deadline = time.monotonic() + self.total_timeout_seconds
         for attempt in range(1, self.max_attempts + 1):
             try:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("LLM总处理时间超过限制")
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": build_user_prompt(task)},
                     ],
+                    timeout=remaining,
                 )
                 content = response.choices[0].message.content
                 result = content.strip() if isinstance(content, str) else ""
@@ -53,7 +60,10 @@ class LLMClient:
             except Exception as exc:
                 if attempt >= self.max_attempts or not _is_retryable(exc):
                     raise
-                self.sleep(float(2 ** (attempt - 1)))
+                delay = float(2 ** (attempt - 1))
+                if time.monotonic() + delay >= deadline:
+                    raise TimeoutError("LLM总处理时间超过限制") from exc
+                self.sleep(delay)
         raise RuntimeError("unreachable")
 
 
