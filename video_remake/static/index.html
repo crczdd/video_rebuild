@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AI 对标视频复刻控制台</title>
+  <link rel="stylesheet" href="/styles.css?v=2">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">VIDEO REMAKE / OPERATIONS</p>
+        <h1>对标视频复刻<br><span>任务控制台</span></h1>
+        <p class="intro">从钉钉 AI 表格读取修改要求，生成 Seedance 2.0 Mini 最终提示词并回写原记录。</p>
+      </div>
+      <div class="hero-status" aria-live="polite">
+        <span id="statusDot" class="status-dot"></span>
+        <div>
+          <small>当前状态</small>
+          <strong id="statusText">正在连接…</strong>
+        </div>
+      </div>
+    </header>
+
+    <section class="control-grid">
+      <article class="panel schedule-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-no">01 / 定时设置</p>
+            <h2>轮询节奏</h2>
+          </div>
+          <span class="saved-label" id="savedLabel">尚未修改</span>
+        </div>
+
+        <label class="field-label" for="interval">每隔多少秒检查一次钉钉表格</label>
+        <div class="interval-row">
+          <input id="interval" type="number" min="10" max="86400" step="1" value="600" inputmode="numeric">
+          <button id="saveInterval" class="button button-dark">保存时间</button>
+        </div>
+        <div class="presets" aria-label="常用时间">
+          <button data-seconds="60">1 分钟</button>
+          <button data-seconds="300">5 分钟</button>
+          <button data-seconds="600">10 分钟</button>
+          <button data-seconds="1800">30 分钟</button>
+          <button data-seconds="3600">1 小时</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <label class="check-row">
+          <input id="runImmediately" type="checkbox" checked>
+          <span><strong>启动后立即执行一轮</strong><small>关闭后会等到第一个定时时间点再执行</small></span>
+        </label>
+        <div class="action-row">
+          <button id="startSchedule" class="button button-primary">启动定时任务</button>
+          <button id="stopSchedule" class="button button-quiet">停止定时</button>
+        </div>
+      </article>
+
+      <article class="panel run-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-no">02 / 单次操作</p>
+            <h2>立即执行</h2>
+          </div>
+        </div>
+        <p class="body-copy">不改变定时设置，马上检查一次。正式执行会调用大模型并回写“最终提示词”。</p>
+        <button id="runNow" class="run-button">
+          <span>正式执行一轮</span>
+          <small>调用 LLM · 写入钉钉</small>
+        </button>
+        <button id="dryRun" class="run-button run-button-safe">
+          <span>安全检查一轮</span>
+          <small>不调用 LLM · 不写入</small>
+        </button>
+        <p class="safety-note"><span>!</span> 同一时间只允许一轮任务运行，避免重复生成和重复回写。</p>
+      </article>
+    </section>
+
+    <section class="metrics" aria-label="运行统计">
+      <article><span>下次执行</span><strong id="nextRun">—</strong></article>
+      <article><span>钉钉读取</span><strong id="metricDingtalkRead">—</strong></article>
+      <article><span>LLM 调用</span><strong id="metricLlm">—</strong></article>
+      <article><span>钉钉回写</span><strong id="metricDingtalkWrite">—</strong></article>
+      <article><span>跳过 / 失败</span><strong id="metricOutcome">—</strong></article>
+    </section>
+
+    <section class="panel activity-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="section-no">03 / 运行记录</p>
+          <h2>最近动态</h2>
+        </div>
+        <span id="lastFinished" class="saved-label">等待首次执行</span>
+      </div>
+      <div id="errorBox" class="error-box" hidden></div>
+      <ol id="eventList" class="event-list" aria-live="polite"></ol>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js?v=2" defer></script>
+</body>
+</html>
