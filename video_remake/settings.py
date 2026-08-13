@@ -14,6 +14,10 @@ class VideoRemakeSettings:
     llm_model: str
     llm_api_mode: str = "chat_completions"
     poll_interval_seconds: int = 600
+    webhook_auth_token: str = ""
+    database_path: str = ".video_remake_jobs.db"
+    llm_timeout_seconds: float = 120.0
+    llm_max_concurrency: int = 2
 
     @classmethod
     def from_env(cls, env_path: str | Path = ".env") -> "VideoRemakeSettings":
@@ -29,12 +33,25 @@ class VideoRemakeSettings:
             raise ValueError("VIDEO_REMAKE_POLL_INTERVAL_SECONDS must be an integer") from exc
         if interval <= 0:
             raise ValueError("VIDEO_REMAKE_POLL_INTERVAL_SECONDS must be greater than zero")
+        try:
+            llm_timeout = float(value("LLM_TIMEOUT_SECONDS", "120"))
+            max_concurrency = int(value("LLM_MAX_CONCURRENCY", "2"))
+        except ValueError as exc:
+            raise ValueError("LLM timeout/concurrency settings must be numeric") from exc
+        if not 1 <= llm_timeout <= 140:
+            raise ValueError("LLM_TIMEOUT_SECONDS must be between 1 and 140")
+        if not 1 <= max_concurrency <= 10:
+            raise ValueError("LLM_MAX_CONCURRENCY must be between 1 and 10")
         return cls(
             llm_api_key=value("LLM_API_KEY"),
             llm_base_url=value("LLM_BASE_URL"),
             llm_model=value("LLM_MODEL"),
             llm_api_mode=value("LLM_API_MODE", "chat_completions"),
             poll_interval_seconds=interval,
+            webhook_auth_token=value("WEBHOOK_AUTH_TOKEN"),
+            database_path=value("DATABASE_PATH", ".video_remake_jobs.db"),
+            llm_timeout_seconds=llm_timeout,
+            llm_max_concurrency=max_concurrency,
         )
 
     def validate_llm(self) -> None:
@@ -49,3 +66,8 @@ class VideoRemakeSettings:
             raise ValueError("Missing LLM settings: " + ", ".join(missing))
         if self.llm_api_mode != "chat_completions":
             raise ValueError("Only LLM_API_MODE=chat_completions is currently supported")
+
+    def validate_webhook(self) -> None:
+        self.validate_llm()
+        if not self.webhook_auth_token:
+            raise ValueError("Missing WEBHOOK_AUTH_TOKEN")

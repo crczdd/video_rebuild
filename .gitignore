@@ -4,3 +4,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .video_remake_web.json
+*.db
+*.db-shm
+*.db-wal
+data/

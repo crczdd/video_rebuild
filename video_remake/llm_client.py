@@ -28,6 +28,7 @@ class LLMClient:
         self.client = client or OpenAI(
             api_key=settings.llm_api_key,
             base_url=normalize_base_url(settings.llm_base_url),
+            timeout=settings.llm_timeout_seconds,
         )
         self.sleep = sleep
         self.max_attempts = max_attempts
