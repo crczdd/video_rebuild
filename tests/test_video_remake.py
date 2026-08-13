@@ -43,7 +43,7 @@ def make_record(record_id: str = "rec-1", **overrides: Any) -> dict[str, Any]:
     [
         ({f.GPT_CONFIRMED: "否"}, False),
         ({f.VIDEO_NAME: ""}, False),
-        ({f.VIDEO_URL: None}, False),
+        ({f.VIDEO_URL: None}, True),
         ({f.NANOPHOTO_PROMPT: "  "}, False),
         ({f.FINAL_PROMPT: "已完成"}, False),
         ({}, True),
@@ -51,6 +51,11 @@ def make_record(record_id: str = "rec-1", **overrides: Any) -> dict[str, Any]:
 )
 def test_eligibility(overrides: dict[str, Any], expected: bool) -> None:
     assert VideoRemakeTask.from_record(make_record(**overrides)).is_eligible() is expected
+
+
+def test_video_url_is_not_a_required_table_field() -> None:
+    assert f.VIDEO_URL in f.INPUT_FIELDS
+    assert f.VIDEO_URL not in f.REQUIRED_FIELDS
 
 
 def test_all_change_fields_empty_is_ineligible() -> None:

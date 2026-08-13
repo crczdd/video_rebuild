@@ -21,7 +21,6 @@ class FakeLLM:
         if self.fail:
             raise RuntimeError("provider unavailable")
         assert task.video_name == "测试视频"
-        assert task.get("视频链接") == "https://example.test/1"
         return "Seedance最终提示词"
 
 
@@ -40,7 +39,6 @@ def payload() -> dict:
         "request_id": "ding-run-1",
         "record_id": "record-1",
         "视频名称": "测试视频",
-        "视频链接": "https://example.test/1",
         "nanophoto提示词": "镜头1：人物进入房间。",
         "台词修改": "把旧台词改成新台词",
         "产品修改": "",
@@ -87,6 +85,20 @@ def test_generate_returns_json_for_dingtalk_and_is_idempotent(tmp_path: Path) ->
     }
     assert second.json()["data"]["cached"] is True
     assert llm.calls == 1
+
+
+def test_video_url_is_optional_and_legacy_value_is_still_accepted(tmp_path: Path) -> None:
+    client, _ = make_client(tmp_path)
+    body = payload() | {
+        "request_id": "ding-run-with-video-url",
+        "视频链接": "https://example.test/legacy.mp4",
+    }
+    response = client.post(
+        "/api/v1/video-remake/generate",
+        json=body,
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert response.status_code == 200
 
 
 def test_wrapped_chinese_payload_is_supported(tmp_path: Path) -> None:

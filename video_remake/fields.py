@@ -13,7 +13,10 @@ FINAL_ADVICE = "修改最终建议"
 GPT_CONFIRMED = "gpt请求确认"
 FINAL_PROMPT = "最终提示词"
 
-BASE_FIELDS = (VIDEO_NAME, VIDEO_URL, NANOPHOTO_PROMPT)
+# Fields whose values must be present before a generation request can run.
+# VIDEO_URL is optional: DingTalk may keep the video as an attachment without
+# sending it to the cloud workflow.
+BASE_FIELDS = (VIDEO_NAME, NANOPHOTO_PROMPT)
 SPECIFIC_CHANGE_FIELDS = (
     DIALOGUE_CHANGE,
     PRODUCT_CHANGE,
@@ -23,5 +26,12 @@ SPECIFIC_CHANGE_FIELDS = (
     SPECIAL_SHOT,
 )
 CHANGE_FIELDS = (*SPECIFIC_CHANGE_FIELDS, FINAL_ADVICE)
-INPUT_FIELDS = (*BASE_FIELDS, *CHANGE_FIELDS, GPT_CONFIRMED, FINAL_PROMPT)
-REQUIRED_FIELDS = INPUT_FIELDS
+INPUT_FIELDS = (
+    VIDEO_NAME,
+    VIDEO_URL,
+    NANOPHOTO_PROMPT,
+    *CHANGE_FIELDS,
+    GPT_CONFIRMED,
+    FINAL_PROMPT,
+)
+REQUIRED_FIELDS = tuple(name for name in INPUT_FIELDS if name != VIDEO_URL)
