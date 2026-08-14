@@ -236,6 +236,34 @@ def test_llm_empty_response_is_failure() -> None:
     assert 0 < observed["timeout"] <= 120
 
 
+def test_responses_api_uses_reasoning_and_disables_storage() -> None:
+    observed = {}
+
+    def create(**kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(output_text="Responses API 最终提示词")
+
+    client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    settings = VideoRemakeSettings(
+        "key",
+        "https://llm.test",
+        "gpt-5.5",
+        llm_api_mode="responses",
+        llm_reasoning_effort="xhigh",
+        llm_disable_response_storage=True,
+    )
+    llm = LLMClient(settings, client=client, sleep=lambda _: None)
+    result = llm.generate_final_prompt(VideoRemakeTask.from_record(make_record()))
+
+    assert result == "Responses API 最终提示词"
+    assert observed["model"] == "gpt-5.5"
+    assert observed["reasoning"] == {"effort": "xhigh"}
+    assert observed["store"] is False
+    assert "instructions" in observed
+    assert "input" in observed
+    assert 0 < observed["timeout"] <= 120
+
+
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [
@@ -249,6 +277,7 @@ def test_llm_empty_response_is_failure() -> None:
             " https://faroapi.com/v1/chat/completions/ ",
             "https://faroapi.com/v1",
         ),
+        ("https://provider.example/responses", "https://provider.example"),
     ],
 )
 def test_normalize_llm_base_url(configured: str, expected: str) -> None:

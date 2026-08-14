@@ -13,6 +13,8 @@ class VideoRemakeSettings:
     llm_base_url: str
     llm_model: str
     llm_api_mode: str = "chat_completions"
+    llm_reasoning_effort: str = ""
+    llm_disable_response_storage: bool = True
     poll_interval_seconds: int = 600
     webhook_auth_token: str = ""
     database_path: str = ".video_remake_jobs.db"
@@ -25,6 +27,14 @@ class VideoRemakeSettings:
 
         def value(name: str, default: str = "") -> str:
             return os.getenv(name, values.get(name, default)).strip()
+
+        def boolean(name: str, default: bool) -> bool:
+            raw = value(name, "true" if default else "false").lower()
+            if raw in {"1", "true", "yes", "on"}:
+                return True
+            if raw in {"0", "false", "no", "off"}:
+                return False
+            raise ValueError(f"{name} must be true or false")
 
         raw_interval = value("VIDEO_REMAKE_POLL_INTERVAL_SECONDS", "600")
         try:
@@ -47,6 +57,8 @@ class VideoRemakeSettings:
             llm_base_url=value("LLM_BASE_URL"),
             llm_model=value("LLM_MODEL"),
             llm_api_mode=value("LLM_API_MODE", "chat_completions"),
+            llm_reasoning_effort=value("LLM_REASONING_EFFORT"),
+            llm_disable_response_storage=boolean("LLM_DISABLE_RESPONSE_STORAGE", True),
             poll_interval_seconds=interval,
             webhook_auth_token=value("WEBHOOK_AUTH_TOKEN"),
             database_path=value("DATABASE_PATH", ".video_remake_jobs.db"),
@@ -64,8 +76,10 @@ class VideoRemakeSettings:
         ]
         if missing:
             raise ValueError("Missing LLM settings: " + ", ".join(missing))
-        if self.llm_api_mode != "chat_completions":
-            raise ValueError("Only LLM_API_MODE=chat_completions is currently supported")
+        if self.llm_api_mode not in {"chat_completions", "responses"}:
+            raise ValueError(
+                "LLM_API_MODE must be chat_completions or responses"
+            )
 
     def validate_webhook(self) -> None:
         self.validate_llm()
