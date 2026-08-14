@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hmac
+import json
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import parse_qsl
 
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
 
 from .job_store import JobStore
 from .llm_client import LLMClient
@@ -46,6 +49,29 @@ def create_app(
         if not authorization or not hmac.compare_digest(authorization, expected):
             raise WebhookError(40101, "Webhook鉴权失败", 401)
 
+    async def parse_generate_payload(request: Request) -> GenerateRequest:
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        try:
+            if content_type == "application/x-www-form-urlencoded":
+                text = (await request.body()).decode("utf-8")
+                raw: object = dict(parse_qsl(text, keep_blank_values=True))
+            elif content_type in {"", "application/json"}:
+                raw = await request.json()
+            else:
+                raise WebhookError(
+                    41500,
+                    "请求Content-Type仅支持application/json或application/x-www-form-urlencoded",
+                    415,
+                )
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise WebhookError(42200, "请求内容格式错误：JSON decode error", 422) from exc
+
+        try:
+            return GenerateRequest.model_validate(raw)
+        except ValidationError as exc:
+            errors = [item.get("msg", "字段格式错误") for item in exc.errors()]
+            raise WebhookError(42200, "请求字段格式错误：" + "；".join(errors), 422) from exc
+
     @app.exception_handler(WebhookError)
     async def webhook_error_handler(_: Request, exc: WebhookError) -> JSONResponse:
         return JSONResponse(
@@ -81,7 +107,7 @@ def create_app(
         response_model=APIResponse,
         dependencies=[Depends(authenticate)],
     )
-    def generate(payload: GenerateRequest) -> APIResponse:
+    def generate(payload: GenerateRequest = Depends(parse_generate_payload)) -> APIResponse:
         data = service.generate(payload)
         return APIResponse(code=0, message="success", data=data)
 

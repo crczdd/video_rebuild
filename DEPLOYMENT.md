@@ -16,11 +16,29 @@ DingTalk -> Nginx:80 -> FastAPI:8000 -> LLM
 - 方法：`POST`
 - URL：`http://39.105.209.143/api/v1/video-remake/generate`
 - Header：`Authorization: Bearer <WEBHOOK_AUTH_TOKEN>`
-- Header：`Content-Type: application/json`
+- Header：`Content-Type: application/x-www-form-urlencoded`（钉钉多行文本推荐）
 - 勾选：等待响应
 - HTTP节点最长等待：150秒；服务端LLM超时120秒，Nginx上限145秒
 
-请求 Body 可以直接使用中文字段：
+钉钉 AI 表格的多行提示词可能包含换行和引号，直接拼接 JSON 容易产生
+`JSON decode error`。HTTP 节点推荐选择 `x-www-form-urlencoded`，逐项添加：
+
+```text
+record_id          = 当前记录ID
+视频名称           = 当前行视频名称
+nanophoto提示词    = 当前行拉片笔记
+台词修改           = 当前行台词修改
+产品修改           = 当前行产品修改
+人物修改           = 当前行人物修改
+背景修改           = 当前行背景修改
+痛点变化           = 当前行痛点变化
+特殊镜头描述       = 当前行特殊镜头描述
+修改最终建议       = 当前行修改最终建议
+```
+
+`Content-Type` 由 HTTP 节点自动设置时，不必手工添加。请求参数仍留空。
+
+服务端继续兼容 `application/json`。合法 JSON 请求示例：
 
 `视频链接`不是必填字段；视频作为钉钉附件保存时，不需要发送给本服务。
 

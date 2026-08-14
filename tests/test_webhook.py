@@ -168,3 +168,34 @@ def test_malformed_json_has_standard_response(tmp_path: Path) -> None:
     assert response.status_code == 422
     assert response.json()["code"] == 42200
     assert response.json()["data"] is None
+
+
+def test_form_encoded_payload_handles_quotes_and_multiline_text(tmp_path: Path) -> None:
+    client, llm = make_client(tmp_path)
+    body = payload() | {
+        "request_id": "ding-form-1",
+        "nanophoto提示词": '镜头1：人物说"你好"。\n镜头2：人物离开。',
+        "修改最终建议": '把台词改为"今天状态不错"。\n其余内容不变。',
+    }
+    response = client.post(
+        "/api/v1/video-remake/generate",
+        data=body,
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert response.status_code == 200
+    assert response.json()["code"] == 0
+    assert llm.calls == 1
+
+
+def test_unsupported_content_type_has_standard_response(tmp_path: Path) -> None:
+    client, _ = make_client(tmp_path)
+    response = client.post(
+        "/api/v1/video-remake/generate",
+        content="plain text",
+        headers={
+            "Authorization": "Bearer secret-token",
+            "Content-Type": "text/plain",
+        },
+    )
+    assert response.status_code == 415
+    assert response.json()["code"] == 41500
