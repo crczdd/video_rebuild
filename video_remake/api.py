@@ -30,7 +30,10 @@ def create_app(
     settings = settings or VideoRemakeSettings.from_env(PROJECT_ROOT / ".env")
     if service is None:
         settings.validate_webhook()
-        store = store or JobStore(settings.database_path)
+        store = store or JobStore(
+            settings.database_path,
+            processing_timeout_seconds=settings.processing_timeout_seconds,
+        )
         service = WebhookService(
             LLMClient(settings), store, max_concurrency=settings.llm_max_concurrency
         )
@@ -114,6 +117,14 @@ def create_app(
     @app.get("/api/status", dependencies=[Depends(authenticate)])
     def status() -> dict:
         return store.summary()
+
+    @app.post(
+        "/api/v1/video-remake/admin/reset-stale",
+        dependencies=[Depends(authenticate)],
+    )
+    def reset_stale() -> dict:
+        count = store.reset_stale()
+        return {"code": 0, "message": "success", "data": {"reset": count}}
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:

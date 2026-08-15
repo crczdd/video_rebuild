@@ -46,7 +46,13 @@ class WebhookService:
                     cached=True,
                 )
             if existing.status == "processing":
-                raise WebhookError(40901, "相同请求正在处理中，请稍后重试", 409)
+                age = _processing_age_seconds(existing)
+                timeout = self.store.processing_timeout_seconds
+                message = (
+                    f"相同请求正在处理中（已耗时{int(age)}秒，超时阈值{int(timeout)}秒），"
+                    f"请等待{max(5, int(timeout - age))}秒后重试"
+                )
+                raise WebhookError(40901, message, 409)
 
         started = time.monotonic()
         if not self._capacity.acquire(blocking=False):
@@ -110,3 +116,14 @@ def _request_key(request: GenerateRequest) -> str:
 
 def _duration(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
+
+
+def _processing_age_seconds(job) -> float:
+    from datetime import datetime, timezone
+    try:
+        updated = datetime.fromisoformat(job.updated_at.replace("Z", "+00:00"))
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+    except (AttributeError, ValueError):
+        return 0.0
+    return max(0.0, (datetime.now(timezone.utc) - updated).total_seconds())

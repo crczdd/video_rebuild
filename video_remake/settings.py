@@ -20,6 +20,7 @@ class VideoRemakeSettings:
     database_path: str = ".video_remake_jobs.db"
     llm_timeout_seconds: float = 120.0
     llm_max_concurrency: int = 2
+    processing_timeout_seconds: float = 180.0
 
     @classmethod
     def from_env(cls, env_path: str | Path = ".env") -> "VideoRemakeSettings":
@@ -52,6 +53,12 @@ class VideoRemakeSettings:
             raise ValueError("LLM_TIMEOUT_SECONDS must be between 1 and 140")
         if not 1 <= max_concurrency <= 10:
             raise ValueError("LLM_MAX_CONCURRENCY must be between 1 and 10")
+        try:
+            processing_timeout = float(value("PROCESSING_TIMEOUT_SECONDS", "180"))
+        except ValueError as exc:
+            raise ValueError("PROCESSING_TIMEOUT_SECONDS must be numeric") from exc
+        if not 30 <= processing_timeout <= 600:
+            raise ValueError("PROCESSING_TIMEOUT_SECONDS must be between 30 and 600")
         return cls(
             llm_api_key=value("LLM_API_KEY"),
             llm_base_url=value("LLM_BASE_URL"),
@@ -64,6 +71,7 @@ class VideoRemakeSettings:
             database_path=value("DATABASE_PATH", ".video_remake_jobs.db"),
             llm_timeout_seconds=llm_timeout,
             llm_max_concurrency=max_concurrency,
+            processing_timeout_seconds=processing_timeout,
         )
 
     def validate_llm(self) -> None:

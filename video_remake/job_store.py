@@ -23,9 +23,10 @@ class Job:
 
 
 class JobStore:
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, processing_timeout_seconds: float = 180.0) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.processing_timeout_seconds = processing_timeout_seconds
         self._initialize()
 
     @contextmanager
@@ -59,7 +60,8 @@ class JobStore:
             )
 
     def begin(self, request_key: str, request_id: str, record_id: str, video_name: str) -> tuple[bool, Job | None]:
-        now = _now()
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -74,14 +76,52 @@ class JobStore:
             row = connection.execute(
                 "SELECT * FROM jobs WHERE request_key = ?", (request_key,)
             ).fetchone()
-            if row and row["status"] == "failed":
+            if not row:
+                return True, None
+            status = row["status"]
+            if status == "failed":
                 connection.execute(
                     """UPDATE jobs SET status='processing', error_message='',
                        duration_ms=NULL, updated_at=? WHERE request_key=?""",
                     (now, request_key),
                 )
                 return True, None
+            if status == "processing" and self._is_stale(row, now_dt):
+                connection.execute(
+                    """UPDATE jobs SET status='processing', request_id=?, record_id=?,
+                       video_name=?, error_message='', duration_ms=NULL,
+                       created_at=?, updated_at=? WHERE request_key=?""",
+                    (request_id, record_id, video_name, now, now, request_key),
+                )
+                return True, None
             return False, _job(row) if row else None
+
+    def _is_stale(self, row: sqlite3.Row, now_dt: datetime) -> bool:
+        updated_at = _parse_iso(row["updated_at"])
+        if updated_at is None:
+            return True
+        elapsed = (now_dt - updated_at).total_seconds()
+        return elapsed > self.processing_timeout_seconds
+
+    def reset_stale(self) -> int:
+        """Force-reset all processing jobs that exceed the timeout. Returns count."""
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT request_key, updated_at FROM jobs WHERE status='processing'"
+            ).fetchall()
+            stale_keys = [row["request_key"] for row in rows if self._is_stale(row, now_dt)]
+            if not stale_keys:
+                return 0
+            placeholders = ",".join("?" for _ in stale_keys)
+            connection.execute(
+                f"""UPDATE jobs SET status='failed',
+                   error_message='强制回收：processing 超时',
+                   duration_ms=0, updated_at=? WHERE request_key IN ({placeholders})""",
+                (now, *stale_keys),
+            )
+            return len(stale_keys)
 
     def succeed(self, request_key: str, final_prompt: str, duration_ms: int) -> None:
         with self._connect() as connection:
@@ -141,3 +181,15 @@ def _job(row: sqlite3.Row) -> Job:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_iso(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

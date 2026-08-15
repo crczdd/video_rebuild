@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from video_remake.api import create_app
 from video_remake.job_store import JobStore
 from video_remake.settings import VideoRemakeSettings
-from video_remake.webhook_service import WebhookService
+from video_remake.webhook_models import GenerateRequest
+from video_remake.webhook_service import WebhookService, _request_key
 
 
 class FakeLLM:
@@ -199,3 +200,107 @@ def test_unsupported_content_type_has_standard_response(tmp_path: Path) -> None:
     )
     assert response.status_code == 415
     assert response.json()["code"] == 41500
+
+
+def test_stale_processing_job_is_reclaimed(tmp_path: Path) -> None:
+    """processing 超过阈值时，相同请求应自动接管而不是返回 409。"""
+    from datetime import datetime, timezone, timedelta
+
+    store = JobStore(tmp_path / "jobs.db", processing_timeout_seconds=60)
+    llm = FakeLLM()
+    service = WebhookService(llm, store)
+    app = create_app(settings=settings(tmp_path / "jobs.db"), service=service, store=store)
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret-token"}
+
+    # 用真实的 request_key 插入一个卡死的 processing 记录（updated_at 设为 2 小时前）
+    request = GenerateRequest.model_validate(payload())
+    key = _request_key(request.stripped())
+    stale_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    with store._connect() as conn:
+        conn.execute(
+            """INSERT INTO jobs (request_key, request_id, record_id, video_name,
+               status, created_at, updated_at) VALUES (?, ?, ?, ?, 'processing', ?, ?)""",
+            (key, "ding-run-1", "record-1", "测试视频", stale_time, stale_time),
+        )
+
+    response = client.post("/api/v1/video-remake/generate", json=payload(), headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["final_prompt"] == "Seedance最终提示词"
+    assert response.json()["data"]["cached"] is False
+    assert llm.calls == 1
+
+
+def test_recent_processing_job_returns_409_with_diagnostics(tmp_path: Path) -> None:
+    """processing 未超时时应返回 409，且消息包含已耗时和等待时间。"""
+    from datetime import datetime, timezone
+
+    store = JobStore(tmp_path / "jobs.db", processing_timeout_seconds=180)
+    llm = FakeLLM()
+    service = WebhookService(llm, store)
+    app = create_app(settings=settings(tmp_path / "jobs.db"), service=service, store=store)
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret-token"}
+
+    # 用真实的 request_key 插入一个刚创建的 processing 记录
+    request = GenerateRequest.model_validate(payload())
+    key = _request_key(request.stripped())
+    now = datetime.now(timezone.utc).isoformat()
+    with store._connect() as conn:
+        conn.execute(
+            """INSERT INTO jobs (request_key, request_id, record_id, video_name,
+               status, created_at, updated_at) VALUES (?, ?, ?, ?, 'processing', ?, ?)""",
+            (key, "ding-run-1", "record-1", "测试视频", now, now),
+        )
+
+    response = client.post("/api/v1/video-remake/generate", json=payload(), headers=headers)
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == 40901
+    assert "已耗时" in body["message"]
+    assert "超时阈值" in body["message"]
+
+
+def test_reset_stale_admin_endpoint(tmp_path: Path) -> None:
+    """管理端点应能强制回收卡死的 processing 记录。"""
+    from datetime import datetime, timezone, timedelta
+
+    store = JobStore(tmp_path / "jobs.db", processing_timeout_seconds=60)
+    llm = FakeLLM()
+    service = WebhookService(llm, store)
+    app = create_app(settings=settings(tmp_path / "jobs.db"), service=service, store=store)
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret-token"}
+
+    # 用真实的 request_key 插入卡死记录
+    stale_payload = payload() | {"request_id": "stale-1"}
+    request = GenerateRequest.model_validate(stale_payload)
+    key = _request_key(request.stripped())
+    stale_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    with store._connect() as conn:
+        conn.execute(
+            """INSERT INTO jobs (request_key, request_id, record_id, video_name,
+               status, created_at, updated_at) VALUES (?, ?, ?, ?, 'processing', ?, ?)""",
+            (key, "stale-1", "record-1", "测试视频", stale_time, stale_time),
+        )
+
+    response = client.post(
+        "/api/v1/video-remake/admin/reset-stale", headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["reset"] == 1
+
+    # 回收后相同请求应能正常处理
+    gen = client.post(
+        "/api/v1/video-remake/generate",
+        json=stale_payload,
+        headers=headers,
+    )
+    assert gen.status_code == 200
+    assert gen.json()["data"]["final_prompt"] == "Seedance最终提示词"
+
+
+def test_reset_stale_requires_auth(tmp_path: Path) -> None:
+    client, _ = make_client(tmp_path)
+    response = client.post("/api/v1/video-remake/admin/reset-stale")
+    assert response.status_code == 401

@@ -101,3 +101,29 @@ docker compose logs --tail=100 app
 ```
 
 当前 IP HTTP 适合联调。正式环境建议绑定域名并启用 HTTPS。
+
+## 409 排查与卡死任务回收
+
+当钉钉日志出现 `40901 相同请求正在处理中`，通常是以下原因之一：
+
+1. **同一请求正在 LLM 调用中**（LLM 慢、钉钉重试或用户短时间内多次触发同一行）
+2. **processing 状态卡死**：服务在 LLM 调用过程中被重启/部署，记录永久停留在 `processing`
+
+服务端已内置 TTL 自动回收：`processing` 超过 `PROCESSING_TIMEOUT_SECONDS`（默认 180 秒）后，相同请求会自动接管重新处理，不再永久卡死。409 响应消息会附带已耗时与建议等待秒数。
+
+如需立即清理卡死任务（不等 TTL）：
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
+  http://39.105.209.143/api/v1/video-remake/admin/reset-stale
+```
+
+返回 `{"code":0,"data":{"reset":N}}`，N 为本次回收的卡死任务数。
+
+查看任务统计（含 processing 数量）：
+
+```bash
+curl -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
+  http://39.105.209.143/api/status
+```
