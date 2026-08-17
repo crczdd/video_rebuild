@@ -75,6 +75,34 @@ nanophoto提示词    = 当前行拉片笔记
 
 “更新记录”节点把 `data.final_prompt` 写入“最终提示词”。
 
+### 纯文本端点（钉钉无法引用嵌套字段时使用）
+
+如果钉钉 AI 表格的“更新记录”节点不支持引用多层嵌套字段（如 `data.final_prompt`），可改用纯文本端点。该端点成功时直接返回提示词正文（`text/plain`），无 JSON 外壳，响应体就是最终提示词本身。
+
+- 方法：`POST`
+- URL：`http://39.105.209.143/api/v1/video-remake/generate-text`
+- Header：`Authorization: Bearer <WEBHOOK_AUTH_TOKEN>`
+- Header：`Content-Type: application/json` 或 `application/x-www-form-urlencoded`
+- 请求 Body：与 JSON 端点完全相同
+
+响应规则：
+
+| 场景 | HTTP 状态码 | 响应体 |
+|------|------------|--------|
+| 成功 | 200 | 提示词正文（纯文本） |
+| 鉴权失败 | 401 | 错误信息（纯文本） |
+| 缺字段 | 422 | 错误信息（纯文本） |
+| 正在处理中 | 409 | 错误信息（纯文本，含已耗时与等待秒数） |
+| LLM 失败 | 502 | 错误信息（纯文本） |
+
+钉钉配置：
+
+- HTTP 请求节点：URL 改为 `.../generate-text`，超时设 150 秒
+- 条件分支：`HTTP状态码 == 200` → 更新记录，引用整个响应体写入“最终提示词”
+- `HTTP状态码 != 200` → 不更新，记录或通知响应体（错误信息）
+
+两个端点共享同一份去重缓存与任务记录，可按需混用。
+
 ## 服务器目录
 
 ```text

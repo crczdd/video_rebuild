@@ -304,3 +304,76 @@ def test_reset_stale_requires_auth(tmp_path: Path) -> None:
     client, _ = make_client(tmp_path)
     response = client.post("/api/v1/video-remake/admin/reset-stale")
     assert response.status_code == 401
+
+
+def test_generate_text_returns_plain_prompt(tmp_path: Path) -> None:
+    """纯文本端点成功时直接返回提示词正文，无 JSON 外壳。"""
+    client, _ = make_client(tmp_path)
+    headers = {"Authorization": "Bearer secret-token"}
+    response = client.post(
+        "/api/v1/video-remake/generate-text", json=payload(), headers=headers
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == "Seedance最终提示词"
+
+
+def test_generate_text_cached_returns_plain_prompt(tmp_path: Path) -> None:
+    """纯文本端点命中缓存时同样返回提示词正文。"""
+    client, _ = make_client(tmp_path)
+    headers = {"Authorization": "Bearer secret-token"}
+    client.post("/api/v1/video-remake/generate-text", json=payload(), headers=headers)
+    response = client.post(
+        "/api/v1/video-remake/generate-text", json=payload(), headers=headers
+    )
+    assert response.status_code == 200
+    assert response.text == "Seedance最终提示词"
+
+
+def test_generate_text_missing_field_returns_plain_error(tmp_path: Path) -> None:
+    """纯文本端点缺字段时返回 422 + 纯文本错误信息。"""
+    client, _ = make_client(tmp_path)
+    headers = {"Authorization": "Bearer secret-token"}
+    bad = payload() | {"nanophoto提示词": ""}
+    response = client.post(
+        "/api/v1/video-remake/generate-text", json=bad, headers=headers
+    )
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "nanophoto提示词" in response.text
+
+
+def test_generate_text_unauthorized_returns_plain_error(tmp_path: Path) -> None:
+    """纯文本端点鉴权失败时返回 401 + 纯文本错误信息。"""
+    client, _ = make_client(tmp_path)
+    response = client.post("/api/v1/video-remake/generate-text", json=payload())
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("text/plain")
+
+
+def test_generate_text_409_returns_plain_error(tmp_path: Path) -> None:
+    """纯文本端点遇到 processing 中时返回 409 + 纯文本错误信息。"""
+    from datetime import datetime, timezone
+
+    store = JobStore(tmp_path / "jobs.db", processing_timeout_seconds=180)
+    llm = FakeLLM()
+    service = WebhookService(llm, store)
+    app = create_app(settings=settings(tmp_path / "jobs.db"), service=service, store=store)
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret-token"}
+
+    request = GenerateRequest.model_validate(payload())
+    key = _request_key(request.stripped())
+    now = datetime.now(timezone.utc).isoformat()
+    with store._connect() as conn:
+        conn.execute(
+            """INSERT INTO jobs (request_key, request_id, record_id, video_name,
+               status, created_at, updated_at) VALUES (?, ?, ?, ?, 'processing', ?, ?)""",
+            (key, "ding-run-1", "record-1", "测试视频", now, now),
+        )
+
+    response = client.post(
+        "/api/v1/video-remake/generate-text", json=payload(), headers=headers
+    )
+    assert response.status_code == 409
+    assert "正在处理中" in response.text

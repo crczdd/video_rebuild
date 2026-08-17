@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl
 
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import ValidationError
 
 from .job_store import JobStore
@@ -113,6 +113,21 @@ def create_app(
     def generate(payload: GenerateRequest = Depends(parse_generate_payload)) -> APIResponse:
         data = service.generate(payload)
         return APIResponse(code=0, message="success", data=data)
+
+    @app.post(
+        "/api/v1/video-remake/generate-text",
+    )
+    async def generate_text(request: Request) -> PlainTextResponse:
+        """纯文本端点：成功直接返回 final_prompt 正文，无 JSON 外壳。
+        所有失败（鉴权/解析/业务）均返回对应 HTTP 状态码 + 纯文本错误信息。
+        钉钉侧用「HTTP状态码 == 200」做条件分支。"""
+        try:
+            authenticate(request.headers.get("authorization"))
+            payload = await parse_generate_payload(request)
+            data = service.generate(payload)
+        except WebhookError as exc:
+            return PlainTextResponse(content=exc.message, status_code=exc.http_status)
+        return PlainTextResponse(content=data.final_prompt, status_code=200)
 
     @app.get("/api/status", dependencies=[Depends(authenticate)])
     def status() -> dict:
